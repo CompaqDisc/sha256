@@ -36,41 +36,33 @@ SHA256::SHA256(uint8_t* result, const uint8_t* message, size_t length)
 
 	// Preprocess (padding):
 	size_t L = length;
-	length += 65;
-	size_t K = 512 - (length % 512);
+	length += 65; /*extra '1' bit plus overhead for embedded size*/
+	size_t K = 512 - (length % 512); /*overhead to make everything pad to a multiple of 512 bits*/
 	length += K;
 
 	uint8_t* m = new uint8_t[length / 8];
 
-	//printf("padded to %d bit message.\n", length);
 	std::memset(m, 0x00, length / 8);
 	std::memcpy(m, message, L / 8);
 	// append a single '1' bit
 	m[(L / 8)] = 0x80;
 
-	// append L as a 64-bit big-endian integer
-	uint64_t len_be64 = L;
-	len_be64 = __builtin_bswap64(len_be64);
-	std::memcpy(&m[(length / 8) - 8], &len_be64, 8);
+	// Append L as a 64-bit big-endian integer.
+	((uint64_t*) m)[(length / 64/*bits*/ ) - 1] /*pointer to beginning of last 64-bits of array*/ = __builtin_bswap64(L); /*now in big endian format!*/
 
-	//for (size_t i = 0; i < length / 8; i++)
-	//	printf("%02x", m[i]);
-	//printf("\n");
-
-	// for each (512-bit) chunk
+	// For each (512-bit) chunk...
 	for (size_t i = 0; i < length / 512; i++)
 	{
-		uint8_t* p = &m[(i * 512) / 8];
+		uint32_t* p = (uint32_t*) &m[(i * 512) / 8];
 
 		// create a 64-entry message shcedule array w[0..63] of 32-bit words
 		uint32_t w[64] = { 0 };
 
 		// copy chunk into first 16 words w[0..15] of the message schedule array
-		//std::memcpy(&w[0], &m[(i*512)/8], 64);
 		for (size_t i = 0; i < 16; i++)
 		{
-			w[i] = (uint32_t) p[0] << 24 | (uint32_t) p[1] << 16 | (uint32_t) p[2] << 8 | (uint32_t) p[3];
-			p += 4;
+			w[i] = __builtin_bswap32(*p); /*interpret byte-stream (that we have a dword [32-bit] pointer to) as big-endian*/
+			p++;
 		}
 
 		// Extend the first 16 words into the remaining 48 words w[16..63] of the message schedule array:
@@ -114,13 +106,14 @@ SHA256::SHA256(uint8_t* result, const uint8_t* message, size_t length)
 		h[7] = h[7] + ah[7];
 	}
 
-	// copy final hash value.
+	// Copy final hash value.
 	for (size_t i = 0; i < 8; i++)
 	{
-		uint32_t swizzle = __builtin_bswap32(h[i]);
-		std::memcpy(&result[i*4], &swizzle, 4);
+		// Index as uint32_t array and place big-endian eqivalent values.
+		((uint32_t*) result)[i] = __builtin_bswap32(h[i]);
 	}
 
+	// Clean up our working buffer.
 	delete[] m;
 }
 
@@ -131,19 +124,16 @@ uint32_t SHA256::ROR(uint32_t value, size_t count)
 
 int main(int argc, char** argv)
 {
-	//if (argc < 2)
-	//	return -1;
-
-	const char*	msg	= "abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq";
-	// Allocate a 256-bit (32-byte) region of memory.
-	uint8_t*	result	= new uint8_t[32];
+	const char*	msg	= "abc";
+	uint8_t*	result	= new uint8_t[32]; /*allocate a 256-bit (32-byte) block of memory for the hash*/
 	SHA256(result, (uint8_t*) msg, std::strlen(msg));
 
-	// Print our sha256sum.
+	// print the hash
 	for (size_t i = 0; i < 32; i++)
 		printf("%02x", result[i]);
 	printf("\n");
-	
+
+	// done with the hash
 	delete[] result;
 
 	return 0;
