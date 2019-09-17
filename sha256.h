@@ -1,9 +1,7 @@
 #pragma once
 
 #include <stdint.h>
-#include <algorithm>
 #include <cstring>
-#include <cstdio>
 
 class SHA256
 {
