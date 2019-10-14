@@ -23,18 +23,15 @@ int main(int argc, char** argv)
 	uint8_t* digest	= new uint8_t[32]; /*allocate a 256-bit (32-byte) block of memory for the hash*/
 	SHA256* algo = new SHA256(digest, length);
 	uint8_t* block = new uint8_t[64];
-	while (length >= 64)
+	for (size_t i = 0; i < SHA256::blocks; i++)
 	{
-		length -= 64;
-		std::memset(block, 0x00, 64);
-		file.read((char*) block, 64);
+		std::memset(block, 0, 64);
+		file.read((char*) block, (length < 64) ? length : 64);
 		algo->submit_block(block);
+		length -= 64;
 	}
-
-	std::memset(block, 0x00, 64);
-	if (length > 0) file.read((char*) block, length);
-	algo->submit_block(block);
 	delete[] block;
+	file.close();
 
 	// print the hash
 	for (size_t i = 0; i < 32; i++)
