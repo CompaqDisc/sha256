@@ -12,6 +12,8 @@ public:
 	static uint8_t*		digest;
 	static size_t		length;
 	static size_t		blocks;
+	static size_t		remaining_blocks;
+	static bool		bit_placed;
 
 	SHA256(uint8_t* digest, size_t length, const uint8_t* data);
 	SHA256(uint8_t* digest, size_t length);
@@ -39,21 +41,23 @@ uint32_t SHA256::ah[] = {
 	0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff, 0xffffffff
 };
 
-uint8_t* SHA256::digest = nullptr;
-size_t SHA256::length = -1;
-size_t SHA256::blocks = -1;
+uint8_t* SHA256::digest		  = nullptr;
+size_t	 SHA256::length		  = -1;
+size_t	 SHA256::blocks		  = -1;
+size_t	 SHA256::remaining_blocks = -1;
+bool	 SHA256::bit_placed	  = false;
 
-SHA256::SHA256(uint8_t* digest, size_t length, const uint8_t* data)
+SHA256::SHA256(uint8_t* _digest, size_t _length, const uint8_t* _data)
 {
-	SHA256(digest, length);
+	SHA256(_digest, _length);
 	
 	uint8_t* block = new uint8_t[64];
 	for (size_t i = 0; i < SHA256::blocks; i++)
 	{
 		std::memset(block, 0, 64);
-		std::memcpy(block, data, (length < 64) ? length : 64);
+		std::memcpy(block, _data, (_length < 64) ? _length : 64);
 		SHA256::submit_block(block);
-		length -= 64;
+		_length -= 64;
 	}
 	delete[] block;
 	return;
@@ -63,24 +67,30 @@ SHA256::SHA256(uint8_t* _digest, size_t _length)
 {
 	digest = _digest;
 	length = _length;
+
 	// Preprocess (padding):
-	size_t len_bits = (length/*bytes*/ * 8/*bits*/) + 1/*single '1' bit*/ + 64;/*embedded length*/
-	size_t K = 512 - (len_bits % 512);
-	len_bits += K;
-	blocks = (len_bits / 512);
+	size_t bits = (length/*bytes*/ * 8/*bits*/) + 1/*single '1' bit*/ + 64;/*embedded length*/
+	size_t K = (512 - (bits % 512)) % 512;
+	bits += K;
+	blocks = (bits / 512);
+	remaining_blocks = blocks;
 }
 
-void SHA256::submit_block(uint8_t* data)
+void SHA256::submit_block(uint8_t* _data)
 {
-	blocks--;
-	if (blocks == 0)
-	{
-		// Place our '1' bit and our size into the final block.
-		data[length % 64] = 0x80;
-		((uint64_t*) data)[7] /*pointer to beginning of last 64-bits of array*/ = __builtin_bswap64(length * 8); /*now in big endian format!*/
+	remaining_blocks--;
+
+	if ((blocks - remaining_blocks) * 64 > length && !bit_placed) {
+		// Append the '1' bit after the message.
+		_data[length % 64] = 0x80;
+		bit_placed = true;
 	}
 
-	uint32_t* p = (uint32_t*) data;
+	// Embed message size into the final block.
+	if (remaining_blocks == 0)
+		((uint64_t*) _data)[7] /*pointer to beginning of last 64-bits of array*/ = __builtin_bswap64(length * 8); /*now in big endian format!*/
+
+	uint32_t* p = (uint32_t*) _data;
 
 	// create a 64-entry message shcedule array w[0..63] of 32-bit words
 	uint32_t w[64] = { 0 };
@@ -132,7 +142,7 @@ void SHA256::submit_block(uint8_t* data)
 	h[6] = h[6] + ah[6];
 	h[7] = h[7] + ah[7];
 
-	if (blocks == 0)
+	if (remaining_blocks == 0)
 	{
 		// Copy final digest.
 		for (size_t i = 0; i < 8; i++)
